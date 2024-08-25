@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather and Nearby Places</title>
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        #map {
+            height: 400px;
+            width: 100%;
+        }
+        #temperature {
+            padding: 10px;
+            font-size: 18px;
+        }
+        #hotel-options, #restaurant-options {
+            padding: 10px;
+            display: none;
+        }
+        h2 {
+            margin-top: 0;
+        }
+        ul {
+            list-style-type: none;
+            padding-left: 0;
+        }
+        li {
+            padding: 5px 0;
+            cursor: pointer;
+            color: blue;
+            text-decoration: underline;
+        }
+        li:hover {
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="temperature">Loading weather data...</div>
+    <div id="hotel-options">
+        <h2>Nearby Hotels</h2>
+        <ul id="hotel-list"></ul>
+    </div>
+    <div id="restaurant-options">
+        <h2>Nearby Restaurants</h2>
+        <ul id="restaurant-list"></ul>
+    </div>
+    <div id="map"></div>
+    <script src="https://js.api.here.com/v3/3.1/mapsjs-core.js"></script>
+    <script src="https://js.api.here.com/v3/3.1/mapsjs-service.js"></script>
+    <script src="https://js.api.here.com/v3/3.1/mapsjs-ui.js"></script>
+    <script src="https://js.api.here.com/v3/3.1/mapsjs-mapevents.js"></script>
+    <script>
+        // Function to fetch weather data based on user's location
+        function fetchWeatherData(lat, lon) {
+            const url = `https://api.met.no/weatherapi/locationforecast/2.0/classic?lat=${lat}&lon=${lon}&altitude=90`;
+
+            fetch(url)
+                .then(response => response.text())
+                .then(data => {
+                    // Parse the XML data
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(data, 'application/xml');
+                    
+                    // Extract data from the XML document
+                    const temperature = parseFloat(xmlDoc.querySelector('temperature').getAttribute('value'));
+
+                    // Display the temperature
+                    const temperatureDiv = document.getElementById('temperature');
+                    temperatureDiv.textContent = `Temperature: ${temperature}°C`;
+
+                    // Determine if the weather is good for an outing
+                    if (temperature >= 15 && temperature <= 25) {
+                        temperatureDiv.textContent += " It's perfect for an outing!";
+                    } else {
+                        temperatureDiv.textContent += " Not ideal for an outing. Would you like to find nearby hotels or restaurants?";
+
+                        // Show hotel and restaurant options
+                        document.getElementById('hotel-options').style.display = 'block';
+                        document.getElementById('restaurant-options').style.display = 'block';
+
+                        // Fetch nearby hotels and restaurants
+                        fetchNearbyPlaces(lat, lon, 'hotel');
+                        fetchNearbyPlaces(lat, lon, 'restaurant');
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Function to fetch nearby places from Overpass API
+        function fetchNearbyPlaces(lat, lon, type) {
+            const radius = 0.05; // Radius in degrees (approx. 5km)
+            const typeMapping = {
+                'hotel': 'tourism=hotel',
+                'restaurant': 'amenity=restaurant'
+            };
+            const query = typeMapping[type];
+            const url = `https://overpass-api.de/api/interpreter?data=[out:json];node(${lat - radius},${lon - radius},${lat + radius},${lon + radius})[${query}];out;`;
+
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    const placesList = document.getElementById(`${type}-list`);
+                    placesList.innerHTML = ''; // Clear previous list
+
+                    if (data.elements && data.elements.length > 0) {
+                        data.elements.forEach(place => {
+                            const listItem = document.createElement('li');
+                            listItem.textContent = `${place.tags.name || 'Unnamed'} - ${place.tags.address || 'No address'}`;
+                            listItem.onclick = () => showDirections(lat, lon, place.lat, place.lon);
+                            placesList.appendChild(listItem);
+                        });
+                    } else {
+                        placesList.textContent = `No ${type} found nearby.`;
+                    }
+                })
+                .catch(error => console.error('Error fetching nearby places:', error));
+        }
+
+        // Function to show directions using Google Maps Directions API
+        function showDirections(startLat, startLon, endLat, endLon) {
+            const directionsUrl = `https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLon}&destination=${endLat},${endLon}`;
+            window.open(directionsUrl, '_blank');
+        }
+
+        // Initialize the HERE map
+        function initializeMap(lat, lon) {
+            const platform = new H.service.Platform({
+                'apikey': 'dAK3WGpYg2J5Z8WXO09iGz_ytIzTpIkgD6XWMk1PECk'
+            });
+
+            const defaultLayers = platform.createDefaultLayers();
+            const map = new H.Map(
+                document.getElementById('map'),
+                defaultLayers.vector.normal.map,
+                {
+                    zoom: 13,
+                    center: { lat: lat, lng: lon }
+                }
+            );
+
+            const ui = H.ui.UI.createDefault(map, defaultLayers);
+
+            // Add a marker at the user's location
+            const marker = new H.map.Marker({ lat: lat, lng: lon });
+            map.addObject(marker);
+        }
+
+        // Get user's location
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(position => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+
+                // Fetch weather data
+                fetchWeatherData(lat, lon);
+
+                // Initialize map with user's location
+                initializeMap(lat, lon);
+            }, error => {
+                console.error('Geolocation error:', error);
+                document.getElementById('temperature').textContent = 'Unable to retrieve your location';
+            });
+        } else {
+            document.getElementById('temperature').textContent = 'Geolocation is not supported by this browser';
+        }
+    </script>
+</body>
+</html>
